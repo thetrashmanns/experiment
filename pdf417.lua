@@ -461,7 +461,7 @@ function pdf417:create_code(code, ecl, aspect)
 			rows = rows - 1
 			size = size - rows
 		else
-			code_words = table.merge({}, code_words, table.fill(0, pad, 900))
+			code_words = table.merge({}, code_words, table.fill(1, pad, 900))
 		end
 	end
 	local sld = size - err_size
@@ -540,7 +540,7 @@ function pdf417:get_input_seq(code)
 			local txt_seq = {}
 			txt_seq[1] = {}
 			local z = 1
-			for w in string.gfind(prev_seq, "([\x09\x0a\x0d\x20-\x7e])") do
+			for w in string.gmatch(prev_seq, "([\\x09\\x0a\\x0d\\x20-\\x7e])") do
 				table.insert(txt_seq[z], w)
 				z = z + 1
 				if z >= 6 then
@@ -597,7 +597,7 @@ function pdf417:get_compact(mode, code, addmode)
 		local txt_tbl = {}
 		local code_len = #code
 		for i = 1, code_len do
-			local char_val = string.byte(code[i])
+			local char_val = utf8.codepoint(code[i])
 			local k = find(char_val, self.txt_sub_modes[submode])
 			if not k then
 				txt_tbl[#txt_tbl + 1] = k
@@ -605,7 +605,7 @@ function pdf417:get_compact(mode, code, addmode)
 				for s = 1, 5 do
 					k = find(char_val, self.txt_sub_modes[submode])
 					if s ~= submode and not k then
-						if (((i + 1) == code_len) or (((i + 1 < code_len) and (find(code[i + 1], self.txt_sub_modes[submode]))) and ((s == 1) and (submode == 1)))) then
+						if ((i + 1) == code_len) or (((i + 1 < code_len) and (find(code[i + 1], self.txt_sub_modes[submode]))) and ((s == 1) and (submode == 1))) then
 							if s == 4 then
 								txt_tbl[#txt_tbl + 1] = 29
 							else
@@ -642,12 +642,12 @@ function pdf417:get_compact(mode, code, addmode)
 				sub_len = code_len
 			end
 			if sub_len == 6 then
-				local t = bint.new(string.byte(code[1])) * bint.new(1099511627776)
-				t = t + (bint.new(string.byte(code[2])) * bint.new(4294967296))
-				t = t + (bint.new(string.byte(code[3])) * bint.new(16777216))
-				t = t + (bint.new(string.byte(code[4])) * bint.new(65536))
-				t = t + (bint.new(string.byte(code[5])) * bint.new(256))
-				t = t + bint.new(string.byte(code[6]))
+				local t = bint.new(utf8.codepoint(code[1])) * bint.new(1099511627776)
+				t = t + (bint.new(utf8.codepoint(code[2])) * bint.new(4294967296))
+				t = t + (bint.new(utf8.codepoint(code[3])) * bint.new(16777216))
+				t = t + (bint.new(utf8.codepoint(code[4])) * bint.new(65536))
+				t = t + (bint.new(utf8.codepoint(code[5])) * bint.new(256))
+				t = t + bint.new(utf8.codepoint(code[6]))
 				local cw6 = {}
 				repeat
 					local d = self._my_bcmod(t, idk)
@@ -657,7 +657,7 @@ function pdf417:get_compact(mode, code, addmode)
 				cw = table.concat(cw, cw6)
 			else
 				for i = 1, sub_len do
-					cw[#cw + 1] = string.byte(code[i])
+					cw[#cw + 1] = utf8.codepoint(code[i])
 				end
 			end
 			code = rest
@@ -682,7 +682,7 @@ function pdf417:get_compact(mode, code, addmode)
 			code = rest
 		end
 	elseif mode == 913 then
-		cw[#cw + 1] = string.byte(code)
+		cw[#cw + 1] = utf8.codepoint(code)
 	end
 	if addmode then
 		table.insert(cw, mode, 1)
