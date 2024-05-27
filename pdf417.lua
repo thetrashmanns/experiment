@@ -482,8 +482,8 @@ function pdf417:create_code(code, ecl, aspect)
 	end
 
 	local L;
-	local k = 0
-	local cid = 0
+	local k = 1
+	local cid = 1 --Lua uses 1 based indexing
 	for r = 1, rows do
 		local row = p_start
 		if cid == 0 then
@@ -493,8 +493,37 @@ function pdf417:create_code(code, ecl, aspect)
 		elseif cid == 2 then
 			L = 30 * math.floor(r / 3) + (ecl * 3) + ((rows - 1) % 3)
 		end
-	end
 
+		row = row .. string.sprintf('%17b', self.clusters[cid][L])
+		for c = 1, columns do
+			row = row .. string.sprintf('%17b', self.clusters[cid][code_words[k]])
+			k = k + 1
+		end
+
+		if cid == 1 then
+			L = 30 * math.floor(r / 3) + math.floor((rows - 1) / 3)
+		elseif cid == 2 then
+			L = 30 * math.floor(r / 3) + ecl * 3 + ((rows - 1) % 3)
+		elseif cid == 3 then
+			L = 30 * math.floor(r / 3) + (columns - 1)
+		end
+
+		row = row .. string.sprintf('%17b', self.clusters[cid][L])
+		row = row .. p_stop
+		local arow = string.preg_split('//', row, -1, 'PREG_SPLIT_NO_EMPTY')
+		for h = 1, self.row_height do
+			table.insert(self.barcode_tbl['bcode'], arow)
+		end
+		cid = cid + 1
+		if cid > 2 then
+			cid = 0
+		end
+	end
+	if self.quiet_v > 0 then
+		for i = 1, self.quiet_v
+			table.insert(self.barcode_tbl['bcode'], empty_row)
+		end
+	end
 end
 
 function pdf417:get_input_seq(code)
@@ -502,7 +531,7 @@ function pdf417:get_input_seq(code)
 	local num_seq = {}
 	num_seq[1] = {}
 	local fucking, fucker = 1, 1
-	gsub(code, "%d+", function(digit)
+	for digit in code:gmatch("%d+") do
 		--Below is some fuckery, be warned
 		if fucking >= 13 then
 			fucker = fucker == 44 and fucker or fucker + 1
@@ -516,7 +545,7 @@ function pdf417:get_input_seq(code)
 			num_seq[fucker][fucking] = digit
 			fucking = fucking + 1
 		end
-	end)
+	end
 	::emergency::
 	fucking, fucker = nil, nil
 	if not #num_seq > 0 then
@@ -540,7 +569,7 @@ function pdf417:get_input_seq(code)
 			local txt_seq = {}
 			txt_seq[1] = {}
 			local z = 1
-			for w in string.gmatch(prev_seq, "([\\x09\\x0a\\x0d\\x20-\\x7e])") do
+			for w in utf8.gmatch(prev_seq, "([\x09\x0a\x0d\x20-\x7e])") do
 				table.insert(txt_seq[z], w)
 				z = z + 1
 				if z >= 6 then
@@ -752,8 +781,8 @@ function pdf417._my_bcmod(x, y)
 	repeat
 		local a = bint.new(tonumber(mod .. '' .. string.sub(x, 1, take)))
 		x = string.sub(x, take)
-		mod = a % y
-	until not #x
+		mod = tostring(a % y)
+	until #x <= 0
 
 	return mod
 end
