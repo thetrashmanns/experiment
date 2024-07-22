@@ -99,18 +99,29 @@ will throw assertions.
 local function luainteger_bitsize()
   local n, i = -1, 0
   repeat
-    n, i = n >> 16, i + 16
+    n, i = bit.rshift(n, 16), i + 16
   until n==0
   return i
 end
+--Hacky math.type for LuaJIT
+local function fucking_shit(num)
+  local x, y = math.modf(num)
+  if y ~= 0 then
+    return "float"
+  elseif x and y == 0 then
+    return "integer"
+  else
+    return "nil"
+  end
+end
 
-local math_type = math.type
+local math_type = fucking_shit
 local math_floor = math.floor
 local math_abs = math.abs
 local math_ceil = math.ceil
 local math_modf = math.modf
-local math_mininteger = math.mininteger
-local math_maxinteger = math.maxinteger
+local math_mininteger = -math.pow(2, 51)
+local math_maxinteger = math.pow(2, 51)
 local math_max = math.max
 local math_min = math.min
 local string_format = string.format
@@ -131,7 +142,7 @@ local function newmodule(bits, wordbits)
 
 local intbits = luainteger_bitsize()
 bits = bits or 256
-wordbits = wordbits or (intbits // 2)
+wordbits = wordbits or math.floor(intbits / 2)
 
 -- Memoize bint modules
 local memoindex = bits * 64 + wordbits
@@ -155,12 +166,12 @@ bint.bits = bits
 
 -- Constants used internally
 local BINT_BITS = bits
-local BINT_BYTES = bits // 8
+local BINT_BYTES = math.floor(bits / 8)
 local BINT_WORDBITS = wordbits
-local BINT_SIZE = BINT_BITS // BINT_WORDBITS
-local BINT_WORDMAX = (1 << BINT_WORDBITS) - 1
-local BINT_WORDMSB = (1 << (BINT_WORDBITS - 1))
-local BINT_LEPACKFMT = '<'..('I'..(wordbits // 8)):rep(BINT_SIZE)
+local BINT_SIZE = math.floor(BINT_BITS / BINT_WORDBITS)
+local BINT_WORDMAX = bit.lshift(1, BINT_WORDBITS) - 1
+local BINT_WORDMSB = bit.lshift(1, (BINT_WORDBITS - 1))
+local BINT_LEPACKFMT = '<'..('I'..math.floor(wordbits / 8)):rep(BINT_SIZE)
 local BINT_MATHMININTEGER, BINT_MATHMAXINTEGER
 local BINT_MININTEGER
 
@@ -216,8 +227,8 @@ function bint.fromuinteger(x)
     end
     local n = setmetatable({}, bint)
     for i=1,BINT_SIZE do
-      n[i] = x & BINT_WORDMAX
-      x = x >> BINT_WORDBITS
+      n[i] = bit.band(x, BINT_WORDMAX)
+      x = bit.rshift(x, BINT_WORDBITS)
     end
     return n
   end
@@ -243,8 +254,8 @@ function bint.frominteger(x)
     end
     local n = setmetatable({}, bint)
     for i=1,BINT_SIZE do
-      n[i] = x & BINT_WORDMAX
-      x = x >> BINT_WORDBITS
+      n[i] = bit.band(x, BINT_WORDMAX)
+      x = bit.rshift(x, BINT_WORDBITS)
     end
     if neg then
       n:_unm()
@@ -264,7 +275,7 @@ local function getbasestep(base)
   end
   step = 0
   local dmax = 1
-  local limit = math_maxinteger // base
+  local limit = math.floor(math_maxinteger / base)
   repeat
     step = step + 1
     dmax = dmax * base
@@ -277,10 +288,10 @@ end
 local function ipow(y, x, n)
   if n == 1 then
     return y * x
-  elseif n & 1 == 0 then --even
-    return ipow(y, x * x, n // 2)
+  elseif bit.band(n, 1) == 0 then --even
+    return ipow(y, x * x, math.floor(n / 2))
   end
-  return ipow(x * y, x * x, (n-1) // 2)
+  return ipow(x * y, x * x, math.floor((n-1) / 2))
 end
 
 --- Create a bint from a string of the desired base.
@@ -459,7 +470,7 @@ function bint.touinteger(x)
   if getmetatable(x) == bint then
     local n = 0
     for i=1,BINT_SIZE do
-      n = n | (x[i] << (BINT_WORDBITS * (i - 1)))
+      n = bit.bor(n, bit.lshift(x[i], (BINT_WORDBITS * (i - 1))))
     end
     return n
   end
@@ -481,7 +492,7 @@ function bint.tointeger(x)
       x = -x
     end
     for i=1,BINT_SIZE do
-      n = n | (x[i] << (BINT_WORDBITS * (i - 1)))
+      n = bit.bor(n, bit.lshift(x[i], (BINT_WORDBITS * (i - 1))))
     end
     if neg then
       n = -n
@@ -570,7 +581,7 @@ function bint.tobase(x, base, unsigned)
   -- calculate basepow
   local step = 0
   local basepow = 1
-  local limit = (BINT_WORDMSB - 1) // base
+  local limit = math.floor((BINT_WORDMSB - 1) / base)
   repeat
     step = step + 1
     basepow = basepow * base
@@ -583,18 +594,18 @@ function bint.tobase(x, base, unsigned)
     carry = 0
     xiszero = true
     for i=size,1,-1 do
-      carry = carry | x[i]
-      d, xd = carry // basepow, carry % basepow
+      carry = bit.bor(carry, x[i])
+      d, xd = math.floor(carry / basepow), carry % basepow
       if xiszero and d ~= 0 then
         size = i
         xiszero = false
       end
       x[i] = d
-      carry = xd << BINT_WORDBITS
+      carry = bit.lshift(xd, BINT_WORDBITS)
     end
     -- digit division
     for _=1,step do
-      xd, d = xd // base, xd % base
+      xd, d = math.floor(xd / base), xd % base
       if xiszero and xd == 0 and d == 0 then
         -- stop on leading zeros
         break
@@ -726,7 +737,7 @@ end
 -- @param x A bint or a lua number.
 function bint.isneg(x)
   if getmetatable(x) == bint then
-    return x[BINT_SIZE] & BINT_WORDMSB ~= 0
+    return bit.band(x[BINT_SIZE], BINT_WORDMSB) ~= 0
   end
   return x < 0
 end
@@ -745,7 +756,7 @@ end
 -- @param x A bint or a lua number.
 function bint.iseven(x)
   if getmetatable(x) == bint then
-    return x[1] & 1 == 0
+    return bit.band(x[1], 1) == 0
   end
   return math_abs(x) % 2 == 0
 end
@@ -754,7 +765,7 @@ end
 -- @param x A bint or a lua number.
 function bint.isodd(x)
   if getmetatable(x) == bint then
-    return x[1] & 1 == 1
+    return bit.band(x[1], 1) == 1
   end
   return math_abs(x) % 2 == 1
 end
@@ -765,7 +776,7 @@ function bint.maxinteger()
   for i=1,BINT_SIZE-1 do
     x[i] = BINT_WORDMAX
   end
-  x[BINT_SIZE] = BINT_WORDMAX ~ BINT_WORDMSB
+  x[BINT_SIZE] = bit.bxor(BINT_WORDMAX, BINT_WORDMSB)
   return x
 end
 
@@ -783,9 +794,9 @@ end
 function bint:_shlone()
   local wordbitsm1 = BINT_WORDBITS - 1
   for i=BINT_SIZE,2,-1 do
-    self[i] = ((self[i] << 1) | (self[i-1] >> wordbitsm1)) & BINT_WORDMAX
+    self[i] = bit.band(bit.bor(bit.lshift(self[i], 1), bit.rshift(self[i-1], wordbitsm1)), BINT_WORDMAX)
   end
-  self[1] = (self[1] << 1) & BINT_WORDMAX
+  self[1] = bit.band(bit.lshift(self[1], 1), BINT_WORDMAX)
   return self
 end
 
@@ -793,9 +804,9 @@ end
 function bint:_shrone()
   local wordbitsm1 = BINT_WORDBITS - 1
   for i=1,BINT_SIZE-1 do
-    self[i] = ((self[i] >> 1) | (self[i+1] << wordbitsm1)) & BINT_WORDMAX
+    self[i] = bit.band(bit.bor(bit.rshift(self[i], 1), bit.lshift(self[i+1], wordbitsm1)), BINT_WORDMAX)
   end
-  self[BINT_SIZE] = self[BINT_SIZE] >> 1
+  self[BINT_SIZE] = bit.rshift(self[BINT_SIZE], 1)
   return self
 end
 
@@ -831,7 +842,7 @@ end
 function bint:_inc()
   for i=1,BINT_SIZE do
     local tmp = self[i]
-    local v = (tmp + 1) & BINT_WORDMAX
+    local v = bit.band((tmp + 1), BINT_WORDMAX)
     self[i] = v
     if v > tmp then
       break
@@ -854,7 +865,7 @@ end
 function bint:_dec()
   for i=1,BINT_SIZE do
     local tmp = self[i]
-    local v = (tmp - 1) & BINT_WORDMAX
+    local v = bit.band((tmp - 1), BINT_WORDMAX)
     self[i] = v
     if v <= tmp then
       break
@@ -929,7 +940,7 @@ function bint.bwrap(x, y)
   if y <= 0 then
     return bint_zero()
   elseif y < BINT_BITS then
-    return x & (bint_one() << y):_dec()
+    return bit.band(x, bit.bor(bint_one(), y):_dec())
   end
   return bint_new(x)
 end
@@ -940,7 +951,7 @@ end
 function bint.brol(x, y)
   x, y = bint_assert_convert(x), bint_assert_tointeger(y)
   if y > 0 then
-    return (x << y) | (x >> (BINT_BITS - y))
+    return bit.bor(bit.lshift(x, y), bit.rshift(x, (BINT_BITS - y)))
   elseif y < 0 then
     if y ~= math_mininteger then
       return x:bror(-y)
@@ -958,7 +969,7 @@ end
 function bint.bror(x, y)
   x, y = bint_assert_convert(x), bint_assert_tointeger(y)
   if y > 0 then
-    return (x >> y) | (x << (BINT_BITS - y))
+    return bit.bor(bit.rshift(x, y), bit.lshift(x, (BINT_BITS - y)))
   elseif y < 0 then
     if y ~= math_mininteger then
       return x:brol(-y)
@@ -1022,8 +1033,8 @@ function bint:_add(y)
   local carry = 0
   for i=1,BINT_SIZE do
     local tmp = self[i] + y[i] + carry
-    carry = tmp >> BINT_WORDBITS
-    self[i] = tmp & BINT_WORDMAX
+    carry = bit.rshift(tmp, BINT_WORDBITS)
+    self[i] = bit.band(tmp, BINT_WORDMAX)
   end
   return self
 end
@@ -1038,8 +1049,8 @@ function bint.__add(x, y)
     local carry = 0
     for i=1,BINT_SIZE do
       local tmp = ix[i] + iy[i] + carry
-      carry = tmp >> BINT_WORDBITS
-      z[i] = tmp & BINT_WORDMAX
+      carry = bit.rshift(tmp, BINT_WORDBITS)
+      z[i] = bit.band(tmp, BINT_WORDMAX)
     end
     return z
   end
@@ -1055,8 +1066,8 @@ function bint:_sub(y)
   local wordmaxp1 = BINT_WORDMAX + 1
   for i=1,BINT_SIZE do
     local res = self[i] + wordmaxp1 - y[i] - borrow
-    self[i] = res & BINT_WORDMAX
-    borrow = (res >> BINT_WORDBITS) ~ 1
+    self[i] = bit.band(res, BINT_WORDMAX)
+    borrow = bit.bxor(bit.rshift(res, BINT_WORDBITS), 1)
   end
   return self
 end
@@ -1072,8 +1083,8 @@ function bint.__sub(x, y)
     local wordmaxp1 = BINT_WORDMAX + 1
     for i=1,BINT_SIZE do
       local res = ix[i] + wordmaxp1 - iy[i] - borrow
-      z[i] = res & BINT_WORDMAX
-      borrow = (res >> BINT_WORDBITS) ~ 1
+      z[i] = bit.band(res, BINT_WORDMAX)
+      borrow = bit.bxor(bit.rshift(res, BINT_WORDBITS), 1)
     end
     return z
   end
@@ -1102,10 +1113,10 @@ function bint.__mul(x, y)
         if a ~= 0 then
           local carry = 0
           for k=i+j-1,BINT_SIZE do
-            local tmp = z[k] + (a & BINT_WORDMAX) + carry
-            carry = tmp >> BINT_WORDBITS
-            z[k] = tmp & BINT_WORDMAX
-            a = a >> BINT_WORDBITS
+            local tmp = z[k] + bit.band(a, BINT_WORDMAX) + carry
+            carry = bit.rshift(tmp, BINT_WORDBITS)
+            z[k] = bit.band(tmp, BINT_WORDMAX)
+            a = bit.rshift(a, BINT_WORDBITS)
           end
         end
       end
@@ -1145,7 +1156,7 @@ local function findleftbit(x)
     if v ~= 0 then
       local j = 0
       repeat
-        v = v >> 1
+        v = bit.rshift(v, 1)
         j = j + 1
       until v == 0
       return (i-1)*BINT_WORDBITS + j - 1, i
@@ -1158,10 +1169,10 @@ local function sudivmod(nume, deno)
   local rema
   local carry = 0
   for i=BINT_SIZE,1,-1 do
-    carry = carry | nume[i]
-    nume[i] = carry // deno
+    carry = bit.bor(carry, nume[i])
+    nume[i] = math.floor(carry / deno)
     rema = carry % deno
-    carry = rema << BINT_WORDBITS
+    carry = bit.lshift(rema, BINT_WORDBITS)
   end
   return rema
 end
@@ -1207,7 +1218,7 @@ function bint.udivmod(x, y)
   local denolbit = findleftbit(deno)
   local numelbit, numesize = findleftbit(nume)
   local bit = numelbit - denolbit
-  deno = deno << bit
+  deno = bit.lshift(deno, bit)
   local wordmaxp1 = BINT_WORDMAX + 1
   local wordbitsm1 = BINT_WORDBITS - 1
   local denosize = numesize
@@ -1229,18 +1240,18 @@ function bint.udivmod(x, y)
       local borrow = 0
       for i=1,size do
         local res = nume[i] + wordmaxp1 - deno[i] - borrow
-        nume[i] = res & BINT_WORDMAX
-        borrow = (res >> BINT_WORDBITS) ~ 1
+        nume[i] = bit.band(res, BINT_WORDMAX)
+        borrow = bit.bxor(bit.rshift(res, BINT_WORDBITS), 1)
       end
       -- concatenate 1 to the right bit of the quotient
-      local i = (bit // BINT_WORDBITS) + 1
-      quot[i] = quot[i] | (1 << (bit % BINT_WORDBITS))
+      local i = math.floor(bit / BINT_WORDBITS) + 1
+      quot[i] = bit.bor(quot[i], bit.lshift(1, (bit % BINT_WORDBITS)))
     end
     -- shift right the denominator in one bit
     for i=1,denosize-1 do
-      deno[i] = ((deno[i] >> 1) | (deno[i+1] << wordbitsm1)) & BINT_WORDMAX
+      deno[i] = bit.band(bit.bor(bit.rshift(deno[i], 1), bit.lshift(deno[i+1], wordbitsm1)), BINT_WORDMAX)
     end
-    local lastdenoword = deno[denosize] >> 1
+    local lastdenoword = bit.rshift(deno[denosize], 1)
     deno[denosize] = lastdenoword
     -- recalculate denominator size (optimization)
     if lastdenoword == 0 then
@@ -1297,7 +1308,7 @@ function bint.tdivmod(x, y)
     assert(not (bint_eq(x, BINT_MININTEGER) and bint_isminusone(y)), 'division overflow')
     quot, rema = bint_udivmod(ix, iy)
   else
-    quot, rema = ax // ay, ax % ay
+    quot, rema = math.floor(ax / ay), ax % ay
   end
   local isxneg, isyneg = bint_isneg(x), bint_isneg(y)
   if isxneg ~= isyneg then
@@ -1343,8 +1354,8 @@ end
 function bint.idivmod(x, y)
   local ix, iy = tobint(x), tobint(y)
   if ix and iy then
-    local isnumeneg = ix[BINT_SIZE] & BINT_WORDMSB ~= 0
-    local isdenoneg = iy[BINT_SIZE] & BINT_WORDMSB ~= 0
+    local isnumeneg = bit.band(ix[BINT_SIZE], BINT_WORDMSB) ~= 0
+    local isdenoneg = bit.band(iy[BINT_SIZE], BINT_WORDMSB) ~= 0
     if isnumeneg then
       ix = -ix
     end
@@ -1371,7 +1382,7 @@ function bint.idivmod(x, y)
     return quot, rema
   end
   local nx, ny = bint_tonumber(x), bint_tonumber(y)
-  return nx // ny, nx % ny
+  return math.floor(nx / ny), nx % ny
 end
 local bint_idivmod = bint.idivmod
 
@@ -1385,8 +1396,8 @@ local bint_idivmod = bint.idivmod
 function bint.__idiv(x, y)
   local ix, iy = tobint(x), tobint(y)
   if ix and iy then
-    local isnumeneg = ix[BINT_SIZE] & BINT_WORDMSB ~= 0
-    local isdenoneg = iy[BINT_SIZE] & BINT_WORDMSB ~= 0
+    local isnumeneg = bit.band(ix[BINT_SIZE], BINT_WORDMSB) ~= 0
+    local isdenoneg = bit.band(iy[BINT_SIZE], BINT_WORDMSB) ~= 0
     if isnumeneg then
       ix = -ix
     end
@@ -1403,7 +1414,7 @@ function bint.__idiv(x, y)
     end
     return quot, rema
   end
-  return bint_tonumber(x) // bint_tonumber(y)
+  return math.floor(bint_tonumber(x) / bint_tonumber(y))
 end
 
 --- Perform division between two numbers considering bints.
@@ -1505,9 +1516,9 @@ function bint.__shl(x, y)
     return bint_zero()
   end
   if y < 0 then
-    return x >> -y
+    return bit.rshift(x, -y)
   end
-  local nvals = y // BINT_WORDBITS
+  local nvals = math.floor(y / BINT_WORDBITS)
   if nvals ~= 0 then
     x:_shlwords(nvals)
     y = y - nvals * BINT_WORDBITS
@@ -1515,9 +1526,9 @@ function bint.__shl(x, y)
   if y ~= 0 then
     local wordbitsmy = BINT_WORDBITS - y
     for i=BINT_SIZE,2,-1 do
-      x[i] = ((x[i] << y) | (x[i-1] >> wordbitsmy)) & BINT_WORDMAX
+      x[i] = bit.band(bit.bor(bit.lshift(x[i], y), bit.rshift(x[i-1], wordbitsmy)), BINT_WORDMAX)
     end
-    x[1] = (x[1] << y) & BINT_WORDMAX
+    x[1] = bit.band(bit.lshift(x[1], y), BINT_WORDMAX)
   end
   return x
 end
@@ -1533,9 +1544,9 @@ function bint.__shr(x, y)
     return bint_zero()
   end
   if y < 0 then
-    return x << -y
+    return bit.lshift(x, -y)
   end
-  local nvals = y // BINT_WORDBITS
+  local nvals = math.floor(y / BINT_WORDBITS)
   if nvals ~= 0 then
     x:_shrwords(nvals)
     y = y - nvals * BINT_WORDBITS
@@ -1543,9 +1554,9 @@ function bint.__shr(x, y)
   if y ~= 0 then
     local wordbitsmy = BINT_WORDBITS - y
     for i=1,BINT_SIZE-1 do
-      x[i] = ((x[i] >> y) | (x[i+1] << wordbitsmy)) & BINT_WORDMAX
+      x[i] = bit.band(bit.bor(bit.rshift(x[i], y), bit.lshift(x[i+1], wordbitsmy)), BINT_WORDMAX)
     end
-    x[BINT_SIZE] = x[BINT_SIZE] >> y
+    x[BINT_SIZE] = bit.lshift(x[BINT_SIZE], y)
   end
   return x
 end
@@ -1556,7 +1567,7 @@ end
 function bint:_band(y)
   y = bint_assert_convert(y)
   for i=1,BINT_SIZE do
-    self[i] = self[i] & y[i]
+    self[i] = bit.band(self[i], y[i])
   end
   return self
 end
@@ -1575,7 +1586,7 @@ end
 function bint:_bor(y)
   y = bint_assert_convert(y)
   for i=1,BINT_SIZE do
-    self[i] = self[i] | y[i]
+    self[i] = bit.bor(self[i], y[i])
   end
   return self
 end
@@ -1594,7 +1605,7 @@ end
 function bint:_bxor(y)
   y = bint_assert_convert(y)
   for i=1,BINT_SIZE do
-    self[i] = self[i] ~ y[i]
+    self[i] = bit.bxor(self[i], y[i])
   end
   return self
 end
@@ -1610,7 +1621,7 @@ end
 --- Bitwise NOT a bint (in-place).
 function bint:_bnot()
   for i=1,BINT_SIZE do
-    self[i] = (~self[i]) & BINT_WORDMAX
+    self[i] = bit.band(bit.bnot(self[i]), BINT_WORDMAX)
   end
   return self
 end
@@ -1621,7 +1632,7 @@ end
 function bint.__bnot(x)
   local y = setmetatable({}, bint)
   for i=1,BINT_SIZE do
-    y[i] = (~x[i]) & BINT_WORDMAX
+    y[i] = bit.band(bit.bnot(x[i]), BINT_WORDMAX)
   end
   return y
 end
@@ -1634,7 +1645,7 @@ end
 --- Negate a bint. This effectively applies two's complements.
 -- @param x A bint to perform negation.
 function bint.__unm(x)
-  return (~x):_inc()
+  return bit.bnot(x):_inc()
 end
 
 --- Compare if integer x is less than y considering bints (unsigned version).
@@ -1676,8 +1687,8 @@ end
 function bint.__lt(x, y)
   local ix, iy = tobint(x), tobint(y)
   if ix and iy then
-    local xneg = ix[BINT_SIZE] & BINT_WORDMSB ~= 0
-    local yneg = iy[BINT_SIZE] & BINT_WORDMSB ~= 0
+    local xneg = bit.band(ix[BINT_SIZE], BINT_WORDMSB) ~= 0
+    local yneg = bit.band(iy[BINT_SIZE], BINT_WORDMSB) ~= 0
     if xneg == yneg then
       for i=BINT_SIZE,1,-1 do
         local a, b = ix[i], iy[i]
@@ -1699,8 +1710,8 @@ end
 function bint.__le(x, y)
   local ix, iy = tobint(x), tobint(y)
   if ix and iy then
-    local xneg = ix[BINT_SIZE] & BINT_WORDMSB ~= 0
-    local yneg = iy[BINT_SIZE] & BINT_WORDMSB ~= 0
+    local xneg = bit.band(ix[BINT_SIZE], BINT_WORDMSB) ~= 0
+    local yneg = bit.band(iy[BINT_SIZE], BINT_WORDMSB) ~= 0
     if xneg == yneg then
       for i=BINT_SIZE,1,-1 do
         local a, b = ix[i], iy[i]
@@ -1728,7 +1739,7 @@ setmetatable(bint, {
   end
 })
 
-BINT_MATHMININTEGER, BINT_MATHMAXINTEGER = bint_new(math.mininteger), bint_new(math.maxinteger)
+BINT_MATHMININTEGER, BINT_MATHMAXINTEGER = bint_new(-math.pow(2, 51)), bint_new(math.pow(2, 51))
 BINT_MININTEGER = bint.mininteger()
 memo[memoindex] = bint
 
@@ -1737,3 +1748,4 @@ return bint
 end
 
 return newmodule
+

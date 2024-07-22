@@ -1,6 +1,6 @@
-local sub, gsub, char = string.sub, string.gsub, string.char
+local sub, gsub, char, gmatch, find = string.sub, string.gsub, string.char, string.gmatch, string.find
 
-local pdf417 = {
+pdf417 = {
 	row_height = 4,
 	quiet_h = 2,
 	quiet_v = 2,
@@ -13,20 +13,7 @@ local pdf417 = {
 		mixed = { 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x26, 0x0d, 0x09, 0x2c, 0x3a, 0x23, 0x2d, 0x2e, 0x24, 0x2f, 0x2b, 0x25, 0x2a, 0x3d, 0x5e, 0xFB, 0x20, 0xFD, 0xFE, 0xFF },
 		punc = { 0x3b, 0x3c, 0x3e, 0x40, 0x5b, 0x5c, 0x5d, 0x5f, 0x60, 0x7e, 0x21, 0x0d, 0x09, 0x2c, 0x3a, 0x0a, 0x2d, 0x2e, 0x24, 0x2f, 0x22, 0x7c, 0x2a, 0x28, 0x29, 0x3f, 0x7b, 0x7d, 0x27, 0xFF }
 	},
-	txt_latches = table.read_only({
-		"01" = {27},
-		"02" = {28},
-		"03" = { 28, 25 },
-		"10" = { 28, 28 }
-		"12" = {28},
-		"13" = { 28, 25 },
-		"20" = {28},
-		"21" = {27},
-		"23" = {25},
-		"30" = {29},
-		"31" = { 29, 27 },
-		"32" = { 29, 28 }
-	}),
+	txt_latches = {},
 	clusters = {
 		{ --cluster 0
 			0x1d5c0, 0x1eaf0, 0x1f57c, 0x1d4e0, 0x1ea78, 0x1f53e, 0x1a8c0, 0x1d470, 0x1a860, 0x15040, --  10
@@ -395,27 +382,42 @@ local pdf417 = {
 	}
 }
 
+pdf417.txt_latches["01"] = {27}
+pdf417.txt_latches["02"] = { 28, 25 }
+pdf417.txt_latches["10"] = { 28, 28}
+pdf417.txt_latches["12"] = {28}
+pdf417.txt_latches["13"] = { 28, 25 }
+pdf417.txt_latches["20"] = {28}
+pdf417.txt_latches["21"] = {27}
+pdf417.txt_latches["23"] = {25}
+pdf417.txt_latches["30"] = {29}
+pdf417.txt_latches["31"] = { 29, 27 }
+pdf417.txt_latches["32"] = { 29, 28 }
+
 function unescape(s)
+	--print(s)
     s = gsub(s, "+", " ")
     s = gsub(s, "%%(%x%x)", function (h)
         	return char(tonumber(h, 16))
     	end)
     return s
 end
-
+--I ain't gonna explain shit, this stuff is too complex for me to type it all out in comment(s).
 function pdf417:create_code(code, ecl, aspect)
-	code = unescape(convert_iso(code))
+	code = unescape(code) --Lua already uses ISO-8859-1
 	ecl = ecl or -1
 	aspect = aspect or 2
 	self.barcode_tbl = {}
 	if code == "" then
 		return false
 	end
+	--print(self.rsfactors)
+	--print(code)
 	local sequence = self.get_input_seq(code)
 	local code_words = {}
 	for i = 1, #sequence do
 		local cw = self.get_compact(sequence[i][1], sequence[i][2], true)
-		code_words = table.merge({}, code_words, cw)
+		code_words = table.merge(code_words, cw)
 	end
 	if code_words[1] == 900 then
 		table.remove(code_words, 1)
@@ -426,9 +428,10 @@ function pdf417:create_code(code, ecl, aspect)
 	end
 
 	ecl = self.get_error_correction_lvl(ecl, num_cw)
-	local err_size = 2 << ecl
+	--print(self.rsfactors)
+	local err_size = bit.lshift(ecl, 2)
 	local nce = num_cw + err_size + 1
-	local columns = math.round((math.sqrt(4761 + (68 * aspectratio * self.row_height * nce)) - 69) / 34) --Nice
+	local columns = math.round((math.sqrt(4761 + (68 * aspect * self.row_height * nce)) - 69) / 34) --Nice
 	if columns < 1 then
 		columns = 1
 	elseif columns > 30 then
@@ -446,7 +449,7 @@ function pdf417:create_code(code, ecl, aspect)
 		size = columns * rows
 	end
 	if size > 928 then
-		if math.abs(aspectratio - (17 * 29 / 32)) < math.abs(aspectratio - (17 * 16 / 58)) then
+		if math.abs(aspect - (17 * 29 / 32)) < math.abs(aspect - (17 * 16 / 58)) then
 			columns = 29
 			rows = 32
 		else
@@ -461,23 +464,24 @@ function pdf417:create_code(code, ecl, aspect)
 			rows = rows - 1
 			size = size - rows
 		else
-			code_words = table.merge({}, code_words, table.fill(1, pad, 900))
+			code_words = table.merge(code_words, table.fill(1, pad, 900))
 		end
 	end
 	local sld = size - err_size
-	table.insert(code_words, sld, 1)
+	table.insert(code_words, 1, sld)
+	--print(self.rsfactors)
 	local ecw = self.get_error_correction(code_words, ecl)
 	code_words = table.merge(code_words, ecw)
-	local p_start = '00' .. self.start_ptrn
-	local p_stop = self.stop_ptrn .. '' .. '00'
-	self.barcode_tbl['num_rows'] = rows * self.row_height + 2 * self.quiet_v
-	self.barcode_tbl['num_col'] = (columns + 2) * 17 + 35 + 2 * self.quiet_h
-	self.barcode_tbl['b_code'] = {}
+	local p_start = string.rep('0', self.quiet_h) .. self.start_ptrn
+	local p_stop = self.stop_ptrn .. '' .. string.rep('0', self.quiet_h)
+	self.barcode_tbl.num_rows = rows * self.row_height + 2 * self.quiet_v
+	self.barcode_tbl.num_col = (columns + 2) * 17 + 35 + 2 * self.quiet_h
+	self.barcode_tbl.b_code = {}
 	local empty_row;
 	if self.quiet_v > 0 then
-		empty_row = table.fill(0, self.barcode_tbl['num_col'], 0)
-		for i = 1, self.quiet_v do
-			table.insert(self.barcode_tbl['b_code'], empty_row)
+		empty_row = table.fill(0, self.barcode_tbl.num_col, 0)
+		for _ = 1, self.quiet_v do
+			table.insert(self.barcode_tbl.b_code, empty_row)
 		end
 	end
 
@@ -485,6 +489,7 @@ function pdf417:create_code(code, ecl, aspect)
 	local k = 1
 	local cid = 1 --Lua uses 1 based indexing
 	for r = 1, rows do
+		--print(p_start)
 		local row = p_start
 		if cid == 0 then
 			L = 30 * math.floor(r / 3) + (columns - 1)
@@ -493,10 +498,11 @@ function pdf417:create_code(code, ecl, aspect)
 		elseif cid == 2 then
 			L = 30 * math.floor(r / 3) + (ecl * 3) + ((rows - 1) % 3)
 		end
-
-		row = row .. string.sprintf('%17b', self.clusters[cid][L])
-		for c = 1, columns do
-			row = row .. string.sprintf('%17b', self.clusters[cid][code_words[k]])
+		--print(row)
+		--print(self.clusters[cid])
+		row = row .. sprintf('%17b', self.clusters[cid][L])
+		for _ = 1, columns do
+			row = row .. sprintf('%17b', self.clusters[cid][code_words[k]])
 			k = k + 1
 		end
 
@@ -508,92 +514,79 @@ function pdf417:create_code(code, ecl, aspect)
 			L = 30 * math.floor(r / 3) + (columns - 1)
 		end
 
-		row = row .. string.sprintf('%17b', self.clusters[cid][L])
+		row = row .. sprintf('%17b', self.clusters[cid][L])
 		row = row .. p_stop
-		local arow = string.preg_split('//', row, -1, 'PREG_SPLIT_NO_EMPTY')
-		for h = 1, self.row_height do
-			table.insert(self.barcode_tbl['bcode'], arow)
+		local arow = preg_split('//', row, -1, 1)
+		
+		for _ = 1, self.row_height do --Discard the iter var as it's not needed
+			table.insert(self.barcode_tbl.b_code, arow)
 		end
 		cid = cid + 1
-		if cid > 2 then
-			cid = 0
+		if cid > 3 then
+			cid = 1
 		end
 	end
 	if self.quiet_v > 0 then
-		for i = 1, self.quiet_v
-			table.insert(self.barcode_tbl['bcode'], empty_row)
+		for _ = 1, self.quiet_v do
+			table.insert(self.barcode_tbl.b_code, empty_row)
 		end
 	end
 end
 
-function pdf417:get_input_seq(code)
+function pdf417.get_input_seq(code)
+	--print(code)
 	local seq_tbl = {}
 	local num_seq = {}
-	num_seq[1] = {}
-	local fucking, fucker = 1, 1
-	for digit in code:gmatch("%d+") do
-		--Below is some fuckery, be warned
-		if fucking >= 13 then
-			fucker = fucker == 44 and fucker or fucker + 1
-			if fucker >= 44 then --Panic button
-				goto emergency
-			end
-			fucking = 1
-			num_seq[fucker] = {}
-			num_seq[fucker][fucking] = digit
-		else
-			num_seq[fucker][fucking] = digit
-			fucking = fucking + 1
+	local fucker = 1
+	for digit in gmatch(code, "%d+") do
+		if fucker >= 43 then break end
+		num_seq[#num_seq + 1] = digit
+		fucker = fucker + 1
+	end
+
+	if not next(num_seq) or #num_seq < 12 then
+		num_seq = {}
+	else
+		local offset = 1
+		for _, v in ipairs(num_seq) do
+			offset = string.find(code, v, offset)
+			v = {v, offset}
+			offset = offset + #v[1]
 		end
 	end
-	::emergency::
-	fucking, fucker = nil, nil
-	if not #num_seq > 0 then
-		local n, offset = 1, 1
-		repeat
-			offset = table.find_key_of(num_seq[n], offset)
-			num_seq[n] = {num_seq[n], offset}
-			offset = offset + #num_seq[n][1]
-			n = n + 1
-		until n >= #num_seq
-	else
-		num_seq = {}
-	end
 	num_seq[#num_seq + 1] = {'', #code}
+	
 	local offset = 1
-	for i = 1, #num_seq do
-		local seq = num_seq[i]
+	for _, v in ipairs(num_seq) do
+		local seq = v
 		local seq_len = #seq[1]
 		if seq[2] > 1 then
-			local prev_seq = sub(code, seq[2] - offset)
+			--I love Lua, but fuck man.
+			local prev_seq = sub(code, offset, seq[2] - offset)
 			local txt_seq = {}
-			txt_seq[1] = {}
-			local z = 1
-			for w in utf8.gmatch(prev_seq, "([\x09\x0a\x0d\x20-\x7e])") do
-				table.insert(txt_seq[z], w)
-				z = z + 1
-				if z >= 6 then
-					z = 1
-					txt_seq[#txt_seq + 1] = {}
-				end
+			for w in gmatch(prev_seq, "([\x09\x0a\x0d\x20-\x7e])") do
+				txt_seq[#txt_seq + 1] = w
 			end
-			if not next(txt_seq) then
+			
+			if #txt_seq == 0 then
 				txt_seq = {}
 			else
+				--i_hate_strings = nil <- Facts
 				for n = 1, #txt_seq do
-					local _offset = table.find_key_of(prev_seq, txt_seq[n])
+					local _offset = string.find(prev_seq, txt_seq[n])
 					txt_seq[n] = {txt_seq[n], _offset}
 				end
 			end
-			txt_seq[#txt_seq + 1] = {'', #prev_seq}
+			txt_seq[#txt_seq + 1] = {'', string.len(prev_seq)}
 			local txt_offset = 1
 			for j = 1, #txt_seq do
 				local txtseq = txt_seq[j]
 				local txt_seq_len = #txtseq[1]
+				--print(txtseq[1])
 				if txtseq[2] > 1 then
 					local prev_txt = sub(prev_seq, txtseq[2] - txt_offset)
 					if #prev_txt > 0 then
-						if #prev_txt == 1 and seq_tbl > 0 and seq_tbl[#seq_tbl][1] == 900 then
+						if #prev_txt == 1 and #seq_tbl > 0 and seq_tbl[#seq_tbl][1] == 900 then
 							seq_tbl[#seq_tbl + 1] = {913, prev_txt}
 						elseif #prev_txt % 6 == 0 then
 							seq_tbl[#seq_tbl + 1] = {924, prev_txt}
@@ -605,7 +598,7 @@ function pdf417:get_input_seq(code)
 				if txt_seq_len > 0 then
 					seq_tbl[#seq_tbl + 1] = {900, txtseq[1]}
 				end
-				txtoffset = txtseq[2] + txt_seq_len
+				txt_offset = txtseq[2] + txt_seq_len
 			end
 		end
 		if seq_len > 0 then
@@ -617,7 +610,7 @@ function pdf417:get_input_seq(code)
 end
 
 function pdf417:get_compact(mode, code, addmode)
-	local find = table.find_key_of
+	--local find = table.find_key_of
 	addmode = addmode or true
 	local cw = {}
 	local idk = bint.new(900)
@@ -626,7 +619,7 @@ function pdf417:get_compact(mode, code, addmode)
 		local txt_tbl = {}
 		local code_len = #code
 		for i = 1, code_len do
-			local char_val = utf8.codepoint(code[i])
+			local char_val = string.byte(code[i])
 			local k = find(char_val, self.txt_sub_modes[submode])
 			if not k then
 				txt_tbl[#txt_tbl + 1] = k
@@ -634,7 +627,7 @@ function pdf417:get_compact(mode, code, addmode)
 				for s = 1, 5 do
 					k = find(char_val, self.txt_sub_modes[submode])
 					if s ~= submode and not k then
-						if ((i + 1) == code_len) or (((i + 1 < code_len) and (find(code[i + 1], self.txt_sub_modes[submode]))) and ((s == 1) and (submode == 1))) then
+						if i + 1 == code_len or (((i + 1 < code_len) and (find(code[i + 1], self.txt_sub_modes[submode]))) and ((s == 1) and (submode == 1))) then
 							if s == 4 then
 								txt_tbl[#txt_tbl + 1] = 29
 							else
@@ -663,30 +656,30 @@ function pdf417:get_compact(mode, code, addmode)
 		local code_len = #code
 		while code_len > 0 do
 			if code_len > 6 then
-				rest = sub(code, 7)
-				code = sub(code, 1, 7)
+				rest = string.sub(code, 7)
+				code = string.sub(code, 1, 7)
 				sub_len = 6
 			else
 				rest = ''
 				sub_len = code_len
 			end
 			if sub_len == 6 then
-				local t = bint.new(utf8.codepoint(code[1])) * bint.new(1099511627776)
-				t = t + (bint.new(utf8.codepoint(code[2])) * bint.new(4294967296))
-				t = t + (bint.new(utf8.codepoint(code[3])) * bint.new(16777216))
-				t = t + (bint.new(utf8.codepoint(code[4])) * bint.new(65536))
-				t = t + (bint.new(utf8.codepoint(code[5])) * bint.new(256))
-				t = t + bint.new(utf8.codepoint(code[6]))
+				local t = bint.new(string.byte(code[1])) * bint.new(1099511627776)
+				t = t + (bint.new(string.byte(code[2])) * bint.new(4294967296))
+				t = t + (bint.new(string.byte(code[3])) * bint.new(16777216))
+				t = t + (bint.new(string.byte(code[4])) * bint.new(65536))
+				t = t + (bint.new(string.byte(code[5])) * bint.new(256))
+				t = t + bint.new(string.byte(code[6]))
 				local cw6 = {}
 				repeat
 					local d = self._my_bcmod(t, idk)
 					t = t / idk
-					table.insert(cw6, d, 1)
+					table.insert(cw6, 1, d)
 				until t == 0
 				cw = table.concat(cw, cw6)
 			else
 				for i = 1, sub_len do
-					cw[#cw + 1] = utf8.codepoint(code[i])
+					cw[#cw + 1] = string.byte(code[i])
 				end
 			end
 			code = rest
@@ -697,8 +690,8 @@ function pdf417:get_compact(mode, code, addmode)
 		local idk = bint.new(900)
 		while code_len > 0 do
 			if code_len > 44 then
-				rest = string.sub(code, 45)
-				code = string.sub(code, 1, 45)
+				rest = sub(code, 45)
+				code = sub(code, 1, 45)
 			else
 				rest = ''
 			end
@@ -706,15 +699,15 @@ function pdf417:get_compact(mode, code, addmode)
 			repeat
 				local d = self._my_bcmod(t, idk)
 				t = t / idk
-				table.insert(cw, d, 1)
+				table.insert(cw, 1, d)
 			until t == 0
 			code = rest
 		end
 	elseif mode == 913 then
-		cw[#cw + 1] = utf8.codepoint(code)
+		cw[#cw + 1] = string.byte(code)
 	end
 	if addmode then
-		table.insert(cw, mode, 1)
+		table.insert(cw, 1, mode)
 	end
 	return cw
 end
@@ -723,7 +716,7 @@ function pdf417.get_error_correction_lvl(ecl, numcw)
 	local max_ecl = 8
 	local max_err_size = 928 - numcw
 	while max_ecl > 0 do
-		local err_size = 2 << ecl
+		local err_size = bit.lshift(ecl, 2)
 		if max_err_size >= err_size then
 			break
 		end
@@ -749,14 +742,16 @@ function pdf417.get_error_correction_lvl(ecl, numcw)
 end
 
 function pdf417.get_error_correction(cw, ecl)
-	local ecc = self.rsfactors[ecl]
-	local ecl_size = 2 << ecl
+	local ecc = pdf417.rsfactors["ecl" .. ecl]
+	local ecl_size = bit.lshift(ecl, 2)
 	local ecl_max_id = ecl_size - 1
 	local ecw = table.fill(1, ecl_size, 0)
+	--print(ecw[256])
+	--print(table.concat(cw))
 
-	for key = 1, #cw do
-		local t1 = (cw[key] + ecw[ecl_max_id]) % 929
-		for j = ecl_max_id, 1, -1 do
+	for _, value in ipairs(cw) do 
+		local t1 = (string.byte(value) + ecw[ecl_max_id]) % 929
+		for j = ecl_max_id, 2, -1 do
 			local t2 = (t1 * ecc[j]) % 929
 			local t3 = 929 - t2
 			ecw[j] = (ecw[j - 1] + t3) % 929
@@ -766,9 +761,9 @@ function pdf417.get_error_correction(cw, ecl)
 		ecw[1] = t3 % 929
 	end
 
-	for j = 1, #ecw do
-		if ecw[j] ~= 0 then
-			ecw[j] = 929 - ecw[j]
+	for _, value in ipairs(ecw) do
+		if value ~= 0 then
+			value = 929 - value
 		end
 	end
 	ecw = table.reverse(ecw)
@@ -779,10 +774,15 @@ function pdf417._my_bcmod(x, y)
 	local take = 6
 	local mod = ''
 	repeat
-		local a = bint.new(tonumber(mod .. '' .. string.sub(x, 1, take)))
-		x = string.sub(x, take)
+		local a = bint.new(tonumber(mod .. '' .. sub(x, 1, take)))
+		x = sub(x, take)
 		mod = tostring(a % y)
-	until #x <= 0
+	until string.len(x) <= 0
 
 	return mod
 end
+
+function pdf417:get_barcode_tbl()
+	return self.barcode_tbl
+end
+
