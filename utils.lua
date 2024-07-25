@@ -1,4 +1,3 @@
-
 do
 	--Same as ipairs but in reverse
 	reverse_ipairs = function(t)
@@ -23,22 +22,6 @@ do
 				error("Attempted to write a read-only table... bozo", 2)
 			end
 		}
-		setmetatable(proxy, mt)
-		return proxy
-	end
-
-	table.array = function(t, len) --Emulates array behavior in other languages
-		local proxy = {}
-		local mt = {}
-		mt.len = len
-		mt.__index = t == nil and {} or t
-		mt.__newindex = function(_t, k, v)
-			if k < _t.len and type(k) == "number" then
-				_t[k] = v
-			else
-				error("Attempted to write outside array bounds ... bozo", 2)
-			end
-		end
 		setmetatable(proxy, mt)
 		return proxy
 	end
@@ -71,7 +54,7 @@ do
 	--Reverses a table with numerical indexes
 	table.reverse = function(tab)
 		local length = #tab
-		for i = 1, bit.rshift(length, 1) do
+		for i = 1, bit.rshift(length, 1) do --LuaJIT doesn't support Lua 5.3+ bitwise operators yet :/
 			tab[i], tab[length - i + 1] = tab[length - i + 1], tab[i]
 		end
 		return tab
@@ -176,7 +159,6 @@ do
 		-- Special case for empty regexp
 		local regexpBody = pattern:match('^/(.*)/%w*$')
 		if not regexpBody then
-			--local result = {}
 			for i = 1, #subject do
 				_filter(subject:sub(i, i), i)
 			end

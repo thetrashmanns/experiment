@@ -108,7 +108,7 @@ local function fucking_shit(num)
   local x, y = math.modf(num)
   if y ~= 0 then
     return "float"
-  elseif x and y == 0 then
+  elseif x and not y then
     return "integer"
   else
     return "nil"

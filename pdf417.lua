@@ -1,4 +1,4 @@
-local sub, gsub, char, gmatch, find = string.sub, string.gsub, string.char, string.gmatch, string.find
+local sub, gsub, char, gmatch, find, len, byte = string.sub, string.gsub, string.char, string.gmatch, string.find, string.len, string.byte
 
 pdf417 = {
 	row_height = 4,
@@ -415,8 +415,8 @@ function pdf417:create_code(code, ecl, aspect)
 	--print(code)
 	local sequence = self.get_input_seq(code)
 	local code_words = {}
-	for i = 1, #sequence do
-		local cw = self.get_compact(sequence[i][1], sequence[i][2], true)
+	for _, value in ipairs(sequence) do
+		local cw = self.get_compact(value[1], value[2], true)
 		code_words = table.merge(code_words, cw)
 	end
 	if code_words[1] == 900 then
@@ -549,7 +549,7 @@ function pdf417.get_input_seq(code)
 	else
 		local offset = 1
 		for _, v in ipairs(num_seq) do
-			offset = string.find(code, v, offset)
+			offset = find(code, v, offset) or -1
 			v = {v, offset}
 			offset = offset + #v[1]
 		end
@@ -573,14 +573,14 @@ function pdf417.get_input_seq(code)
 			else
 				--i_hate_strings = nil <- Facts
 				for n = 1, #txt_seq do
-					local _offset = string.find(prev_seq, txt_seq[n])
+					local _offset = find(prev_seq, txt_seq[n])
 					txt_seq[n] = {txt_seq[n], _offset}
 				end
 			end
-			txt_seq[#txt_seq + 1] = {'', string.len(prev_seq)}
+			txt_seq[#txt_seq + 1] = {'', len(prev_seq)}
 			local txt_offset = 1
-			for j = 1, #txt_seq do
-				local txtseq = txt_seq[j]
+			for j, _seq in ipairs(txt_seq) do
+				local txtseq = _seq
 				local txt_seq_len = #txtseq[1]
 				--print(txtseq[1])
 				if txtseq[2] > 1 then
@@ -610,7 +610,6 @@ function pdf417.get_input_seq(code)
 end
 
 function pdf417:get_compact(mode, code, addmode)
-	--local find = table.find_key_of
 	addmode = addmode or true
 	local cw = {}
 	local idk = bint.new(900)
@@ -619,7 +618,7 @@ function pdf417:get_compact(mode, code, addmode)
 		local txt_tbl = {}
 		local code_len = #code
 		for i = 1, code_len do
-			local char_val = string.byte(code[i])
+			local char_val = byte(code[i])
 			local k = find(char_val, self.txt_sub_modes[submode])
 			if not k then
 				txt_tbl[#txt_tbl + 1] = k
@@ -634,7 +633,7 @@ function pdf417:get_compact(mode, code, addmode)
 								txt_tbl[#txt_tbl + 1] = 27
 							end
 						else
-							txt_tbl = table.concat(txt_tbl, self.txt_latches['' .. tostring(submode) .. tostring(s)])
+							txt_tbl = table.merge(txt_tbl, self.txt_latches['' .. tostring(submode) .. tostring(s)])
 							submode = s
 						end
 						txt_tbl[#txt_tbl + 1] = k
@@ -656,30 +655,30 @@ function pdf417:get_compact(mode, code, addmode)
 		local code_len = #code
 		while code_len > 0 do
 			if code_len > 6 then
-				rest = string.sub(code, 7)
-				code = string.sub(code, 1, 7)
+				rest = sub(code, 7)
+				code = sub(code, 1, 7)
 				sub_len = 6
 			else
 				rest = ''
 				sub_len = code_len
 			end
 			if sub_len == 6 then
-				local t = bint.new(string.byte(code[1])) * bint.new(1099511627776)
-				t = t + (bint.new(string.byte(code[2])) * bint.new(4294967296))
-				t = t + (bint.new(string.byte(code[3])) * bint.new(16777216))
-				t = t + (bint.new(string.byte(code[4])) * bint.new(65536))
-				t = t + (bint.new(string.byte(code[5])) * bint.new(256))
-				t = t + bint.new(string.byte(code[6]))
+				local t = bint.new(byte(code[1])) * bint.new("1099511627776")
+				t = t + (bint.new(byte(code[2])) * bint.new(4294967296))
+				t = t + (bint.new(byte(code[3])) * bint.new(16777216))
+				t = t + (bint.new(byte(code[4])) * bint.new(65536))
+				t = t + (bint.new(byte(code[5])) * bint.new(256))
+				t = t + bint.new(byte(code[6]))
 				local cw6 = {}
 				repeat
 					local d = self._my_bcmod(t, idk)
 					t = t / idk
 					table.insert(cw6, 1, d)
 				until t == 0
-				cw = table.concat(cw, cw6)
+				cw = table.merge(cw, cw6)
 			else
 				for i = 1, sub_len do
-					cw[#cw + 1] = string.byte(code[i])
+					cw[#cw + 1] = byte(code[i])
 				end
 			end
 			code = rest
@@ -687,7 +686,7 @@ function pdf417:get_compact(mode, code, addmode)
 	elseif mode == 902 then
 		local rest;
 		local code_len = #code
-		local idk = bint.new(900)
+		idk = bint.new(900)
 		while code_len > 0 do
 			if code_len > 44 then
 				rest = sub(code, 45)
@@ -704,7 +703,7 @@ function pdf417:get_compact(mode, code, addmode)
 			code = rest
 		end
 	elseif mode == 913 then
-		cw[#cw + 1] = string.byte(code)
+		cw[#cw + 1] = byte(code)
 	end
 	if addmode then
 		table.insert(cw, 1, mode)
@@ -749,8 +748,8 @@ function pdf417.get_error_correction(cw, ecl)
 	--print(ecw[256])
 	--print(table.concat(cw))
 
-	for _, value in ipairs(cw) do 
-		local t1 = (string.byte(value) + ecw[ecl_max_id]) % 929
+	for _, value in ipairs(cw) do
+		local t1 = (byte(value) + ecw[ecl_max_id]) % 929
 		for j = ecl_max_id, 2, -1 do
 			local t2 = (t1 * ecc[j]) % 929
 			local t3 = 929 - t2
@@ -777,7 +776,7 @@ function pdf417._my_bcmod(x, y)
 		local a = bint.new(tonumber(mod .. '' .. sub(x, 1, take)))
 		x = sub(x, take)
 		mod = tostring(a % y)
-	until string.len(x) <= 0
+	until len(x) <= 0
 
 	return mod
 end
@@ -785,4 +784,3 @@ end
 function pdf417:get_barcode_tbl()
 	return self.barcode_tbl
 end
-
