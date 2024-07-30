@@ -1,2 +1,4 @@
 experiment.code-workspace
 .luarc.json
+*.md
+.obsidian

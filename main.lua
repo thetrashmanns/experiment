@@ -2,7 +2,7 @@
 function love.load()
 	love.window.setMode(1366, 768)
 	require("pdf")
-	bint = require('bint')(256)
+	bint = require('bint')()
 	loveframes = require("ui.loveframes")
 	dofile("utils.lua")
 	require("pdf417")

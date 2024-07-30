@@ -143,6 +143,7 @@ do
 		local noEmpty = false
 		local delim = false
 		local offset = false
+		local optTemp = 0
 
 		local OPTS = {
 			PREG_SPLIT_NO_EMPTY = 1,
@@ -150,10 +151,20 @@ do
 			PREG_SPLIT_OFFSET_CAPTURE = 4
 		}
 
+		if type(flags) ~= "number" then
+			flags = table.merge(flags)
+			for _, v in ipairs(flags) do
+				if OPTS[v] then
+					optTemp = bit.bor(optTemp, OPTS[v])
+				end
+			end
+			flags = optTemp
+		end
+
 		local function _filter(str, strindex)
 			if noEmpty and #str == 0 then return end
 			if offset then str = {str, strindex} end
-			table.insert(ret, str)
+			ret[#ret + 1] = str
 		end
 
 		-- Special case for empty regexp

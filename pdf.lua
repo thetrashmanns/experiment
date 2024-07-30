@@ -16,7 +16,7 @@ PDF.new = function()
 
 	local add = function(obj)
 		table.insert(object, obj)
-		obj.number = table.getn(object)
+		obj.number = #object
 		return obj
 	end
 
@@ -40,8 +40,6 @@ PDF.new = function()
 		if type(obj) ~= "table" then
 			fh:write(obj .. "\n")
 		elseif obj.datatype == "dictionary" then
-			local k, v
-
 			fh:write("<<\n")
 			for k, v in pairs(obj.contents) do
 				fh:write(string.format("/%s ", k))
@@ -49,8 +47,6 @@ PDF.new = function()
 			end
 			fh:write(">>\n")
 		elseif obj.datatype == "array" then
-			local v
-
 			fh:write("[\n")
 			for _, v in ipairs(obj.contents) do
 				write_object(fh, v)
@@ -60,12 +56,10 @@ PDF.new = function()
 			local len = 0
 
 			if type(obj.contents) == "string" then
-				len = string.len(obj.contents)
+				len = obj.contents:len()
 			else -- assume array
-				local i, str
-				
-				for i, str in ipairs(obj.contents) do
-					len = len + string.len(str) + 1
+				for _, str in ipairs(obj.contents) do
+					len = len + str:len() + 1
 				end
 			end
 
@@ -74,10 +68,8 @@ PDF.new = function()
 
 			if type(obj.contents) == "string" then
 				fh:write(obj.contents)
-			else -- assume array
-				local i, str
-				
-				for i, str in ipairs(obj.contents) do
+			else -- assume array		
+				for _, str in ipairs(obj.contents) do
 					fh:write(str)
 					fh:write("\n")
 				end
@@ -89,7 +81,7 @@ PDF.new = function()
 
 	write_indirect_object = function(fh, obj)
 		obj.offset = fh:seek()
-		fh:write(string.format("%d %d obj\n", obj.number, 0))
+		fh:write(string.format("%d %d obj\n", 0, obj.number))
 		write_direct_object(fh, obj)
 		fh:write("endobj\n")
 	end
@@ -99,20 +91,16 @@ PDF.new = function()
 	end
 
 	local write_body = function(fh)
-		local i, obj
-		
-		for i, obj in ipairs(object) do
+		for _, obj in ipairs(object) do
 			write_indirect_object(fh, obj)
 		end
 	end
 
 	local write_xref_table = function(fh)
-		local i, obj
-
 		xref_table_offset = fh:seek()
 		fh:write("xref\n")
-		fh:write(string.format("%d %d\n", 1, table.getn(object)))
-		for i, obj in ipairs(object) do
+		fh:write(string.format("%d %d\n", 1, #object))
+		for _, obj in ipairs(object) do
 			fh:write(
 			    string.format("%010d %05d n \n", obj.offset, 0)
 			)
@@ -122,7 +110,7 @@ PDF.new = function()
 	local write_trailer = function(fh)
 		fh:write("trailer\n")
 		fh:write("<<\n")
-		fh:write(string.format("/Size %d\n", table.getn(object)))
+		fh:write(string.format("/Size %d\n", #object))
 		fh:write("/Root " .. get_ref(catalog_obj) .. "\n")
 		fh:write(">>\n")
 		fh:write("startxref\n")
@@ -157,9 +145,7 @@ PDF.new = function()
 		-- Private functions.
 		--
 
-		local use_font = function(font_obj)
-			local i, f
-			
+		local use_font = function(font_obj)			
 			for i, f in ipairs(used_font) do
 				if font_obj == f then
 					return "/F" .. i
@@ -167,7 +153,7 @@ PDF.new = function()
 			end
 			
 			table.insert(used_font, font_obj)
-			return "/F" .. table.getn(used_font)
+			return "/F" .. tostring(#used_font)
 		end
 
 		--
@@ -339,7 +325,6 @@ PDF.new = function()
 
 		pg.setdash = function(pg, array, phase)
 			local str = ""
-			local v
 			
 			for _, v in ipairs(array) do
 				str = str .. v .. " "
@@ -417,7 +402,6 @@ PDF.new = function()
 
 		pg.add = function(pg)
 			local contents_obj, this_obj, resources
-			local i, font_obj
 
 			contents_obj = add {
 				datatype = "stream",

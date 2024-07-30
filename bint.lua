@@ -106,9 +106,9 @@ end
 --Hacky math.type for LuaJIT
 local function fucking_shit(num)
   local x, y = math.modf(num)
-  if y ~= 0 then
+  if y ~= 0 and x then
     return "float"
-  elseif x and not y then
+  elseif x and y == 0 then
     return "integer"
   else
     return "nil"
@@ -120,8 +120,8 @@ local math_floor = math.floor
 local math_abs = math.abs
 local math_ceil = math.ceil
 local math_modf = math.modf
-local math_mininteger = -math.pow(2, 51)
-local math_maxinteger = math.pow(2, 51)
+local math_mininteger = -9007199254740993
+local math_maxinteger = 9007199254740993
 local math_max = math.max
 local math_min = math.min
 local string_format = string.format
@@ -170,6 +170,7 @@ local BINT_BYTES = math.floor(bits / 8)
 local BINT_WORDBITS = wordbits
 local BINT_SIZE = math.floor(BINT_BITS / BINT_WORDBITS)
 local BINT_WORDMAX = bit.lshift(1, BINT_WORDBITS) - 1
+print(BINT_SIZE)
 local BINT_WORDMSB = bit.lshift(1, (BINT_WORDBITS - 1))
 local BINT_LEPACKFMT = '<'..('I'..math.floor(wordbits / 8)):rep(BINT_SIZE)
 local BINT_MATHMININTEGER, BINT_MATHMAXINTEGER
@@ -240,7 +241,7 @@ local bint_fromuinteger = bint.fromuinteger
 -- @return A new bint or nil in case the input cannot be represented by an integer.
 -- @see bint.fromuinteger
 function bint.frominteger(x)
-  x = tointeger(x)
+  --print(x)
   if x then
     if x == 1 then
       return bint_one()
@@ -310,11 +311,13 @@ function bint.frombase(s, base)
     return
   end
   local step = getbasestep(base)
+  --print(step)
   if #s < step then
     -- string is small, use tonumber (faster)
     return bint_frominteger(tonumber(s, base))
   end
   local sign, int = s:lower():match('^([+-]?)(%w+)$')
+  print(int)
   if not (sign and int) then
     -- invalid integer string representation
     return
@@ -397,11 +400,13 @@ end
 function bint.new(x)
   if getmetatable(x) ~= bint then
     local ty = type(x)
+    print(ty)
     if ty == 'number' then
       x = bint_frominteger(x)
     elseif ty == 'string' then
       x = bint_fromstring(x)
     end
+    --print(x)
     assert(x, 'value cannot be represented by a bint')
     return x
   end
@@ -1029,6 +1034,7 @@ end
 -- @param y An integer to be added.
 -- @raise Asserts in case inputs are not convertible to integers.
 function bint:_add(y)
+  print(y)
   y = bint_assert_convert(y)
   local carry = 0
   for i=1,BINT_SIZE do
@@ -1739,7 +1745,7 @@ setmetatable(bint, {
   end
 })
 
-BINT_MATHMININTEGER, BINT_MATHMAXINTEGER = bint_new(-math.pow(2, 51)), bint_new(math.pow(2, 51))
+BINT_MATHMININTEGER, BINT_MATHMAXINTEGER = bint_new(-9007199254740993), bint_new(9007199254740993)
 BINT_MININTEGER = bint.mininteger()
 memo[memoindex] = bint
 
